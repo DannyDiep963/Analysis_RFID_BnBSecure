@@ -2,11 +2,13 @@
 #include <MFRC522.h>
 
 //Hardware Pin
-  const byte  ssPin = 10; //Slave Select pin
-  const byte rstPin = 9;  //Reset Pin
+#define SS_PIN 53 //Slave Select pin
+#define RST_PIN 49  //Reset Pin
+#define LED_G 6 //Green LED
+#define LED_R 5 // Red LED
 
 //Instantiate MFRC522 object Class
-  MFRC522 rfidReader(ssPin, rstPin); // Instance of the class
+  MFRC522 rfidReader(SS_PIN, RST_PIN); // Instance of the class
 
 //Global Constants
   const long timeout = 30000;
@@ -39,12 +41,28 @@ bool readRFID(long _timeout=timeout, bool useTimeout=false){
     // T  = (currentTime-startTime) > timeout
     // T' = (currentTime-startTime) < timeout
     while (((successRead==false)&&(useTimeout==false)) || ((successRead==false)&&((currentTime - startTime) < _timeout))) {    
-        if (isTagPresent() == true){ successRead = getTagID(); }
+        if (isTagPresent() == true){ 
+          successRead = getTagID(); 
+          }
         currentTime = millis();
     }
     return successRead;
 }
 
+/*void loop(){
+  //Look for new cards
+  if(rfidReader.PICC_IsNewCardPresent())
+    if(rfidReader.PICC_ReadCardSerial()){
+      Serial.print("Tag UID: ");
+      for (byte i = 0; i < rfidReader.uid.size; i++){
+        Serial.print(rfidReader.uid.uidByte[i] < 0x10 ? " 0" : " ");
+        Serial.print(rfidReader.uid.uidByte[i], HEX);
+      }
+      Serial.println();
+      rfidReader.PICC_HaltA();
+  }
+}   
+*/
 /* ***********************************************************
  *                         Void Setup                        *
  * ********************************************************* */
@@ -54,6 +72,10 @@ void setup() {
     SPI.begin();                            // Start SPI bus
     rfidReader.PCD_Init();                  // Start MFRC522 object
 
+    //Print Firmware Version
+    rfidReader.PCD_DumpVersionToSerial();
+    Serial.println(F("Scann PICC to see UID, SAK, type, and data blocks..."));
+    
     while (!Serial);                        // Do nothing if no serial port is opened
     
     // Obviously this is an over simplified sketch
@@ -86,12 +108,9 @@ void loop() {
         checkTagID();
     } else {
         delay(50);
-       
         //return;
     }
 }    
-
-
 
 /* ***********************************************************
  *                         Functions                         *
@@ -103,8 +122,7 @@ bool isTagPresent() {
    *  Returns:
    *    true  - if tag detected or read card serial is true
    *    false - no tag detected or no read card serial true
-   */  
-
+   */
    //Not a new PICC_IsNewCardPresent in RFID reader
    //Or
    //Not a PICC_ReadCardSerial active in Serial
@@ -149,10 +167,10 @@ void checkTagID() {
      //Check for authorized tag
      byte tagIndex = checkMyTags(tagID);
      if (tagIndex !=0){
-      Serial.print(F("Access Granted!"));
+      Serial.println(F("Access Granted!"));
      } else {
-      Serial.print(F("Access Denied!"));
-      Serial.print(F("New UID & Contents: "));
+      Serial.println(F("Access Denied!"));
+      Serial.println(F("New UID & Contents"));
       rfidReader.PICC_DumpToSerial(&(rfidReader.uid));
      }
     }
