@@ -1,11 +1,12 @@
+/***** Still in Working Progress *****/
 #include <SPI.h>
 #include <MFRC522.h>
 
 //Hardware Pin
 #define SS_PIN 53 //Slave Select pin
 #define RST_PIN 49  //Reset Pin
-#define LED_G 6 //Green LED
-#define LED_R 5 // Red LED
+#define LED_G 24  //Green LED
+#define LED_R 25  // Red LED
 
 //Instantiate MFRC522 object Class
   MFRC522 rfidReader(SS_PIN, RST_PIN); // Instance of the class
@@ -49,20 +50,6 @@ bool readRFID(long _timeout=timeout, bool useTimeout=false){
     return successRead;
 }
 
-/*void loop(){
-  //Look for new cards
-  if(rfidReader.PICC_IsNewCardPresent())
-    if(rfidReader.PICC_ReadCardSerial()){
-      Serial.print("Tag UID: ");
-      for (byte i = 0; i < rfidReader.uid.size; i++){
-        Serial.print(rfidReader.uid.uidByte[i] < 0x10 ? " 0" : " ");
-        Serial.print(rfidReader.uid.uidByte[i], HEX);
-      }
-      Serial.println();
-      rfidReader.PICC_HaltA();
-  }
-}   
-*/
 /* ***********************************************************
  *                         Void Setup                        *
  * ********************************************************* */
@@ -71,7 +58,19 @@ void setup() {
     Serial.begin(9600);                     // Start the serial monitor
     SPI.begin();                            // Start SPI bus
     rfidReader.PCD_Init();                  // Start MFRC522 object
-
+    
+    //LED start up sequence
+    pinMode(LED_G, OUTPUT);
+    pinMode(LED_R, OUTPUT);
+    digitalWrite(LED_R, HIGH);
+    delay(200);
+    digitalWrite(LED_R, LOW);
+    delay(200);
+    digitalWrite(LED_G, HIGH);
+    delay(200);
+    digitalWrite(LED_G, LOW);
+    delay(200);
+    
     //Print Firmware Version
     rfidReader.PCD_DumpVersionToSerial();
     Serial.println(F("Scann PICC to see UID, SAK, type, and data blocks..."));
@@ -95,7 +94,9 @@ void setup() {
         Serial.println(F("Master Tag is Set!"));
         tagsCount++;
     }
+
     printNormalModeMessage();
+    
 }
 
 
@@ -161,15 +162,32 @@ void checkTagID() {
    // Checks for Master tag
    if(tagID == myTags[0]) {
     //Switch to program mode
-    Serial.println(F("Program Mode: "));
-    Serial.println(F("Add/Remove Tag"));
-   } else{
-     //Check for authorized tag
+    //Serial.println(F("Program Mode: "));
+    //Serial.println(F("Add/Remove Tag"));
+    //Check for authorized tag
      byte tagIndex = checkMyTags(tagID);
-     if (tagIndex !=0){
+     if (tagIndex ==0){
       Serial.println(F("Access Granted!"));
-     } else {
+      digitalWrite(LED_G,HIGH);
+      delay(300);
+      digitalWrite(LED_G,LOW);
+      delay(300);
+      digitalWrite(LED_G,HIGH);
+      delay(300);
+      digitalWrite(LED_G,LOW);
+      delay(300);
+   } else{
+      byte tagIndex = checkMyTags(tagID);
       Serial.println(F("Access Denied!"));
+      digitalWrite(LED_R,HIGH);
+      delay(300);
+      digitalWrite(LED_R,LOW);
+      delay(300);
+      digitalWrite(LED_R,HIGH);
+      delay(300);
+      digitalWrite(LED_R,LOW);
+      delay(300);
+      
       Serial.println(F("New UID & Contents"));
       rfidReader.PICC_DumpToSerial(&(rfidReader.uid));
      }
@@ -213,5 +231,3 @@ void printNormalModeMessage() {
     Serial.println(F("-Access Control-"));
     Serial.println(F(" Scan Your Tag!"));
 }
-
-
