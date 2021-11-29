@@ -1,24 +1,28 @@
 /***** Still in Working Progress *****/
+// include the library code:
 #include <SPI.h>
 #include <MFRC522.h>
+#include <LiquidCrystal.h>
 
 //Hardware Pin
 #define SS_PIN 53 //Slave Select pin
 #define RST_PIN 49  //Reset Pin
-#define LED_G 24  //Green LED
-#define LED_R 25  // Red LED
+int LED_G = 7;  //Green LED
+int LED_R = 6;  // Red LED
+LiquidCrystal lcd(7, 8, 9, 10, 11, 12);
 
 //Instantiate MFRC522 object Class
-  MFRC522 rfidReader(SS_PIN, RST_PIN); // Instance of the class
+MFRC522 rfidReader(SS_PIN, RST_PIN); // Instance of the class
 
 //Global Constants
-  const long timeout = 30000;
+const long timeout = 30000;
 
 /* ***********************************************************
  *                      Global Variables                     *
  * ********************************************************* */
- char* myTags[100] = {};
- int tagsCount = 0;
+ //char* myTags[10] = {};
+ //int tagsCount = 0;
+ String myMasterTag = "";
  String tagID = "";
  
 bool readRFID(long _timeout=timeout, bool useTimeout=false){
@@ -58,19 +62,13 @@ void setup() {
     Serial.begin(9600);                     // Start the serial monitor
     SPI.begin();                            // Start SPI bus
     rfidReader.PCD_Init();                  // Start MFRC522 object
-    
-    //LED start up sequence
-    pinMode(LED_G, OUTPUT);
-    pinMode(LED_R, OUTPUT);
-    digitalWrite(LED_R, HIGH);
-    delay(200);
-    digitalWrite(LED_R, LOW);
-    delay(200);
-    digitalWrite(LED_G, HIGH);
-    delay(200);
-    digitalWrite(LED_G, LOW);
-    delay(200);
-    
+    lcd.begin(16, 2);
+    //LCD start up sequence
+    lcd.setCursor(3,0);
+    lcd.print("Welcome To ");
+    lcd.setCursor(3,1);
+    lcd.print("BnB Secure");
+    delay(3000);
     //Print Firmware Version
     rfidReader.PCD_DumpVersionToSerial();
     Serial.println(F("Scann PICC to see UID, SAK, type, and data blocks..."));
@@ -87,12 +85,21 @@ void setup() {
     // Prints the initial message
     Serial.println(F("-No Master Tag!-"));
     Serial.println(F("    SCAN NOW"));
-
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("-No Master Tag!-");
+    lcd.setCursor(3,1);
+    lcd.print("SCAN NOW");
+    
     // readRFID will wait until a master card is scanned
     if (readRFID() == true) {
-        myTags[tagsCount] = strdup(tagID.c_str()); // Sets the master tag into position 0 in the array
-        Serial.println(F("Master Tag is Set!"));
-        tagsCount++;
+        //myTags[tagsCount] = strdup(tagID.c_str()); // Sets the master tag into position 0 in the array
+        myMasterTag = strdup(tagID.c_str());
+        Serial.println(F("Master Tag Set!"));
+        lcd.clear();
+        lcd.setCursor(0,0);
+        lcd.print("Master Tag Set!");
+        //tagsCount++;
     }
 
     printNormalModeMessage();
@@ -104,12 +111,22 @@ void setup() {
  *                         Void Loop                         *
  * ********************************************************* */
 void loop() {
-    if (isTagPresent()==true){
-        getTagID();
-        checkTagID();
+
+  /*
+  Serial.println("Red Led on");
+  digitalWrite(LED_R, HIGH);
+  delay(300);
+  Serial.println("Red Led off");
+  digitalWrite(LED_R, LOW);
+  delay(300);
+ */
+  if (isTagPresent()==true){
+    Serial.println(myMasterTag);
+    getTagID();
+    checkTagID();
     } else {
-        delay(50);
-        //return;
+    delay(50);
+    //return;
     }
 }    
 
@@ -143,13 +160,14 @@ byte checkMyTags(String tagID) {
    */
    byte tagIndex = 0;
    Serial.println("Checking Tag Started");
-   //Zerp is reserved for master tag
-   for(int i = 1; i < 100 ; i++){
-    if(tagID == myTags[i]){
+   //Zero is reserved for master tag
+   for(int i = 1; i < 10 ; i++){
+    //if(tagID == myTags[i]){
+    if(tagID == myMasterTag) {
       tagIndex = i;
     }
    }
-   Serial.println("Checking Tag Ended");
+   //Serial.println("Checking Tag Ended");
    return tagIndex;
 }
 
@@ -160,37 +178,32 @@ void checkTagID() {
    * Returns: (none)
    */
    // Checks for Master tag
-   if(tagID == myTags[0]) {
+   //if(tagID == myTags[0]) {
+   if(tagID == myMasterTag) {
     //Switch to program mode
     //Serial.println(F("Program Mode: "));
     //Serial.println(F("Add/Remove Tag"));
     //Check for authorized tag
-     byte tagIndex = checkMyTags(tagID);
-     if (tagIndex ==0){
-      Serial.println(F("Access Granted!"));
-      digitalWrite(LED_G,HIGH);
-      delay(300);
-      digitalWrite(LED_G,LOW);
-      delay(300);
-      digitalWrite(LED_G,HIGH);
-      delay(300);
-      digitalWrite(LED_G,LOW);
-      delay(300);
-   } else{
-      byte tagIndex = checkMyTags(tagID);
-      Serial.println(F("Access Denied!"));
-      digitalWrite(LED_R,HIGH);
-      delay(300);
-      digitalWrite(LED_R,LOW);
-      delay(300);
-      digitalWrite(LED_R,HIGH);
-      delay(300);
-      digitalWrite(LED_R,LOW);
-      delay(300);
-      
-      Serial.println(F("New UID & Contents"));
-      rfidReader.PICC_DumpToSerial(&(rfidReader.uid));
-     }
+    Serial.println(F("Access Granted!"));
+    
+    //LCD Display
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("UID:" + tagID);
+    lcd.setCursor(0,1);
+    lcd.print("Access Granted!");
+    }else{
+    Serial.println(F("Access Denied!"));
+    
+    //LCD Display
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("UID:" + tagID);
+    lcd.setCursor(0,1);
+    lcd.print("Access Denied!");
+
+    Serial.println(F("New UID & Contents"));
+    rfidReader.PICC_DumpToSerial(&(rfidReader.uid));
     }
    printNormalModeMessage();
 }
@@ -208,8 +221,8 @@ bool getTagID() {
     // The MIFARE PICCs that we use have 4 byte UID
     Serial.print(rfidReader.uid.uidByte[i] < 0x10 ? " 0" : " ");
     Serial.print(rfidReader.uid.uidByte[i], HEX);
-
-    //Adds the bytes in a single String variable 
+    
+    //Adds the bytes in a single String variable (tagID)
     tagID.concat(String(rfidReader.uid.uidByte[i] < 0x10 ? " 0" : " "));
     tagID.concat(String(rfidReader.uid.uidByte[i], HEX));
    }
@@ -229,5 +242,12 @@ void printNormalModeMessage() {
     delay(1500);
     Serial.println();
     Serial.println(F("-Access Control-"));
-    Serial.println(F(" Scan Your Tag!"));
+    Serial.println(F("Scan Your Tag!"));
+    
+    //LCD Display
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("-Access Control-");
+    lcd.setCursor(0,1);
+    lcd.print("Scan Your Tag!");
 }
