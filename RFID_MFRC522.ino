@@ -1,8 +1,10 @@
-/***** Still in Working Progress *****/
 // include the library code:
 #include <SPI.h>
 #include <MFRC522.h>
 #include <LiquidCrystal.h>
+#include <SoftwareSerial.h>
+#include <StreamUtils.h>
+#include <ArduinoJson.h>
 
 //Hardware Pin
 #define SS_PIN 53 //Slave Select pin
@@ -14,240 +16,172 @@ LiquidCrystal lcd(7, 8, 9, 10, 11, 12);
 //Instantiate MFRC522 object Class
 MFRC522 rfidReader(SS_PIN, RST_PIN); // Instance of the class
 
-//Global Constants
-const long timeout = 30000;
+//Instantiate ESP8266 object Class
+//SoftwareSerial wifiModule(0, 23); // 2 to TX Pin, 3 to RX Pin to the esp8266
 
-/* ***********************************************************
- *                      Global Variables                     *
- * ********************************************************* */
- //char* myTags[10] = {};
- //int tagsCount = 0;
- String myMasterTag = "";
- String tagID = "";
- 
-bool readRFID(long _timeout=timeout, bool useTimeout=false){
-    /*  readRFID will continuously check the RFID reader for the presence of
-     *    a tag from and will attempt to get tag IDs. Updates global value
-     *    tagID via getTagID function.
-     *  Parameters:
-     *    _timeout   - [optional] the length of time before functio gives up
-     *                 default value = global timout value
-     *    useTimeout - [optional] boolean to enforce timout period or wait 
-     *                 indefinately.  Default value = false.
-     *  Returns:
-     *    true  -  successfully reads tag ID
-     *    false -  unsuccessful in reading the tag ID          
-     */
-    bool successRead = false;
+bool isRead = false;
+bool isNewCard = false;
+String tagContent = "";
+String currentUID = "";
+String email = "";
 
-    unsigned long startTime = millis();
-    unsigned long currentTime = startTime;
-    // S'U'+S'T'
-    // T  = (currentTime-startTime) > timeout
-    // T' = (currentTime-startTime) < timeout
-    while (((successRead==false)&&(useTimeout==false)) || ((successRead==false)&&((currentTime - startTime) < _timeout))) {    
-        if (isTagPresent() == true){ 
-          successRead = getTagID(); 
-          }
-        currentTime = millis();
-    }
-    return successRead;
-}
+// Interval before we process the same RFID
+int INTERVAL = 2000;
+unsigned long previousTime = 0;
+unsigned long startTime = 0;
 
-/* ***********************************************************
- *                         Void Setup                        *
- * ********************************************************* */
 void setup() {
-    // Initiating
-    Serial.begin(9600);                     // Start the serial monitor
-    SPI.begin();                            // Start SPI bus
-    rfidReader.PCD_Init();                  // Start MFRC522 object
-    lcd.begin(16, 2);
-    //LCD start up sequence
-    lcd.setCursor(3,0);
-    lcd.print("Welcome To ");
-    lcd.setCursor(3,1);
-    lcd.print("BnB Secure");
-    delay(3000);
-    //Print Firmware Version
-    rfidReader.PCD_DumpVersionToSerial();
-    Serial.println(F("Scann PICC to see UID, SAK, type, and data blocks..."));
-    
-    while (!Serial);                        // Do nothing if no serial port is opened
-    
-    // Obviously this is an over simplified sketch
-    // Master tags would be save in flash storage and
-    // retrieved here.  OR a special PIN entered to set
-    // Master Tag.
-    // But for the sake of simplicity, the sketch will 
-    // obtain a new master tag when restarted.
-    
-    // Prints the initial message
-    Serial.println(F("-No Master Tag!-"));
-    Serial.println(F("    SCAN NOW"));
-    lcd.clear();
-    lcd.setCursor(0,0);
-    lcd.print("-No Master Tag!-");
-    lcd.setCursor(3,1);
-    lcd.print("SCAN NOW");
-    
-    // readRFID will wait until a master card is scanned
-    if (readRFID() == true) {
-        //myTags[tagsCount] = strdup(tagID.c_str()); // Sets the master tag into position 0 in the array
-        myMasterTag = strdup(tagID.c_str());
-        Serial.println(F("Master Tag Set!"));
-        lcd.clear();
-        lcd.setCursor(0,0);
-        lcd.print("Master Tag Set!");
-        //tagsCount++;
-    }
-
-    printNormalModeMessage();
-    
+  // Initiating:
+  Serial.begin(9600);
+  //wifiModule.begin(4800);
+  Serial1.begin(4800);
+  //wifiModule.setTimeout(5000);
+  SPI.begin();
+  rfidReader.PCD_Init(); 
+  
+  lcd.begin(16, 2);
+  //LCD start up sequence
+  lcd.setCursor(3,0);
+  lcd.print("Welcome To ");
+  lcd.setCursor(3,1);
+  lcd.print("BnB Secure");
+  delay(3000);
+  //Print Firmware Version
+  rfidReader.PCD_DumpVersionToSerial();
+  delay(1500);
+  printWaitingModeMessage();
 }
 
-
-/* ***********************************************************
- *                         Void Loop                         *
- * ********************************************************* */
 void loop() {
+  // put your main code here, to run repeatedly:
+  // Look for new tag
+  if (rfidReader.PICC_IsNewCardPresent()) {
+    // Select tag
+    if(rfidReader.PICC_ReadCardSerial()) {
+      isRead = true;
+      byte letter;
+      for (byte i = 0; i < rfidReader.uid.size; i++){
+        Serial.print(rfidReader.uid.uidByte[i] < 0x10 ? " 0" : " ");
+        Serial.print(rfidReader.uid.uidByte[i], HEX);
 
-  /*
-  Serial.println("Red Led on");
-  digitalWrite(LED_R, HIGH);
-  delay(300);
-  Serial.println("Red Led off");
-  digitalWrite(LED_R, LOW);
-  delay(300);
- */
-  if (isTagPresent()==true){
-    Serial.println(myMasterTag);
-    getTagID();
-    checkTagID();
+        tagContent.concat(String(rfidReader.uid.uidByte[i] < 0x10 ? " 0" : " "));
+        tagContent.concat(String(rfidReader.uid.uidByte[i], HEX));
+      }
+      Serial.println();
+      tagContent.toUpperCase();
+    }
+    if(isRead) {
+      startTime = millis();
+      // If new card is present (different from the previous card), then validate if it has access
+      if(currentUID != tagContent) {
+        currentUID = tagContent;
+        isNewCard = true;
+      } else {  // If it is the same RFID UID then we wait for interval to pass before we process the same RFID
+        if(startTime - previousTime >= INTERVAL) {
+          isNewCard = true;
+        } else {
+          isNewCard = false;
+        } 
+      } 
+      if(isNewCard) {
+        if(tagContent != "") {
+          previousTime = startTime;
+          //Send the RFID UID code to the ESP8266 for validation
+          Serial.print("Sending data to module: ");
+          //Serial.println(tagContent);
+          //wifiModule.println(tagContent);
+          Serial1.println(tagContent);
+          // Checking wifi module
+          Serial.println("Waiting for response from wifi module...");
+          
+          int iCtr = 0;
+          
+          while(!Serial1.available()) {
+            iCtr++;
+            if(iCtr >= 100)
+              break;
+            delay(100); 
+            }
+            
+          if(Serial1.available()>0) {
+            Serial.println("Wifi module is available");
+            bool isAuthorized = isUserAuthorized(tagContent);
+            while(Serial1.available()>0){
+              Serial1.read();
+            }
+            //if user is OR not authorized display the message
+            if(!isAuthorized) {
+              printNotAuthorized();
+              delay(1500);
+              printWaitingModeMessage();
+              
+            } else {
+              printAuthorized();
+              delay(1500);              
+              printWaitingModeMessage();
+            }
+          }
+            Serial.println("Finished processing response from Wifi Module");
+          }
+        }
     } else {
-    delay(50);
-    //return;
+      Serial.println("No card is presented");
     }
-}    
-
-/* ***********************************************************
- *                         Functions                         *
- * ********************************************************* */
-bool isTagPresent() {
-  /*  isTagPresent uses the MFRC522 methods to determine if 
-   *    a tag is present or the read card serial is enabled.
-   *  Parameters: (none)
-   *  Returns:
-   *    true  - if tag detected or read card serial is true
-   *    false - no tag detected or no read card serial true
-   */
-   //Not a new PICC_IsNewCardPresent in RFID reader
-   //Or
-   //Not a PICC_ReadCardSerial active in Serial
-   if (!rfidReader.PICC_IsNewCardPresent() || !rfidReader.PICC_ReadCardSerial()) {
-    return false;
-   }
-   return true;
+    tagContent = "";
+    isNewCard = false;
+  }
 }
 
-byte checkMyTags(String tagID) {
-  /* checkMyTags function loops through the array of myTags
-   *   Parameters:
-   *     tagID    - a string to look for
-   *   Returns:
-   *     tagIndex - index in the array of myTags
-   *                default 0     
-   */
-   byte tagIndex = 0;
-   Serial.println("Checking Tag Started");
-   //Zero is reserved for master tag
-   for(int i = 1; i < 10 ; i++){
-    //if(tagID == myTags[i]){
-    if(tagID == myMasterTag) {
-      tagIndex = i;
-    }
-   }
-   //Serial.println("Checking Tag Ended");
-   return tagIndex;
+bool isUserAuthorized(String tagContent) {
+  //Process if message is ready
+  const size_t capacity = JSON_OBJECT_SIZE(1) + 256;
+  DynamicJsonDocument doc(capacity);
+  ReadLoggingStream loggingStream(Serial1, Serial);
+  DeserializationError error = deserializeJson(doc, loggingStream);
+  //DeserializationError error = deserializeJson(doc, Serial1);
+  if(error) {
+    Serial.print("DeserializeJson() failed: ");
+    Serial.println(error.c_str());
+    return error.c_str();
+  }
+  String auth = doc["is_authorized"];
+  Serial.println(auth);
+  bool is_authorized = doc["is_authorized"] == "true";
+  email = doc["email"].as<String>();
+  Serial.print("is_authorized: ");
+  Serial.println(is_authorized);
+  Serial.println(email);
+  delay(5000);
+  return is_authorized;
 }
 
-void checkTagID() {
-  /* checkTagID check the tag ID for authorized tag ID values
-   *   if Master tag found switch to program mode
-   * Parameters: (none)
-   * Returns: (none)
-   */
-   // Checks for Master tag
-   //if(tagID == myTags[0]) {
-   if(tagID == myMasterTag) {
-    //Switch to program mode
-    //Serial.println(F("Program Mode: "));
-    //Serial.println(F("Add/Remove Tag"));
-    //Check for authorized tag
-    Serial.println(F("Access Granted!"));
+void printWaitingModeMessage() {
+  Serial.println();
+  Serial.println("-Access Control-");
+  Serial.println("Scan tag to see UID");
     
-    //LCD Display
-    lcd.clear();
-    lcd.setCursor(0,0);
-    lcd.print("UID:" + tagID);
-    lcd.setCursor(0,1);
-    lcd.print("Access Granted!");
-    }else{
-    Serial.println(F("Access Denied!"));
-    
-    //LCD Display
-    lcd.clear();
-    lcd.setCursor(0,0);
-    lcd.print("UID:" + tagID);
-    lcd.setCursor(0,1);
-    lcd.print("Access Denied!");
-
-    Serial.println(F("New UID & Contents"));
-    rfidReader.PICC_DumpToSerial(&(rfidReader.uid));
-    }
-   printNormalModeMessage();
+  //LCD Display
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("-Access Control-");
+  lcd.setCursor(0,1);
+  lcd.print("Scan Your Tag!");
 }
 
-bool getTagID() {
-  /*  getTagID retrieves the tag ID.  Modifies global variable tagID
-   *           
-   *    Parameters: (none)    
-   *    Returns: true
-   */
-   tagID = "";
-
-   Serial.print(F(" UID Tag: "));
-   for (byte i = 0; i < rfidReader.uid.size; i++){
-    // The MIFARE PICCs that we use have 4 byte UID
-    Serial.print(rfidReader.uid.uidByte[i] < 0x10 ? " 0" : " ");
-    Serial.print(rfidReader.uid.uidByte[i], HEX);
-    
-    //Adds the bytes in a single String variable (tagID)
-    tagID.concat(String(rfidReader.uid.uidByte[i] < 0x10 ? " 0" : " "));
-    tagID.concat(String(rfidReader.uid.uidByte[i], HEX));
-   }
-   Serial.println();
-   Serial.println();
-   tagID.toUpperCase();
-   rfidReader.PICC_HaltA(); //Stop Reading
-   return true;
+void printAuthorized() {
+  Serial.println("Valid Tag - Access Granted");
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Valid Tag");
+  lcd.setCursor(0,1);
+  lcd.print("Access Granted");
 }
 
-void printNormalModeMessage() {
-    /*  printNormalModeMessage sends the standard greeting
-     *    to the serial monitor.
-     *  Parameters: (none)
-     *  Returns: (none)
-     */
-    delay(1500);
-    Serial.println();
-    Serial.println(F("-Access Control-"));
-    Serial.println(F("Scan Your Tag!"));
-    
-    //LCD Display
-    lcd.clear();
-    lcd.setCursor(0,0);
-    lcd.print("-Access Control-");
-    lcd.setCursor(0,1);
-    lcd.print("Scan Your Tag!");
+void printNotAuthorized() {
+  Serial.println("Invalid Tag - Access Denied");
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Invalid Tag");
+  lcd.setCursor(0,1);
+  lcd.print("Access Denied");
 }
